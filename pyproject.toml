@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cian-parser"
+version = "2.0.0"
+description = "Parser for Cian.ru real estate listings (Playwright-based)"
+requires-python = ">=3.9"
+dependencies = [
+    "playwright>=1.40",
+    "playwright-stealth>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: end-to-end tests that hit real Cian.ru (require network + chromium)",
+    "slow: slow tests (newobject, extra_data with detail pages)",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
