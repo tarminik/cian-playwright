@@ -24,7 +24,7 @@ def test_invalid_deal_type():
 
 
 def test_valid_rooms_int():
-    for r in range(1, 6):
+    for r in range(1, 7):
         _validate_rooms(r)
 
 
@@ -41,7 +41,7 @@ def test_invalid_rooms_int():
     with pytest.raises(ValueError):
         _validate_rooms(0)
     with pytest.raises(ValueError):
-        _validate_rooms(6)
+        _validate_rooms(7)
 
 
 def test_invalid_rooms_str():

@@ -47,13 +47,13 @@ class URLBuilder:
         if isinstance(rooms, tuple):
             for count_of_room in rooms:
                 if isinstance(count_of_room, int):
-                    if 0 < count_of_room < 6:
+                    if 0 < count_of_room < 7:
                         rooms_path += ROOM_PATH.format(count_of_room)
                 elif isinstance(count_of_room, str):
                     if count_of_room == "studio":
                         rooms_path += STUDIO_PATH
         elif isinstance(rooms, int):
-            if 0 < rooms < 6:
+            if 0 < rooms < 7:
                 rooms_path += ROOM_PATH.format(rooms)
         elif isinstance(rooms, str):
             if rooms == "studio":

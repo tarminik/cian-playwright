@@ -196,19 +196,19 @@ def _validate_rooms(rooms: int | str | tuple) -> None:
     if isinstance(rooms, tuple):
         for r in rooms:
             if isinstance(r, int):
-                if r < 1 or r > 5:
-                    raise ValueError(f'Room count {r} out of range. Valid: 1-5, "studio", "all".')
+                if r < 1 or r > 6:
+                    raise ValueError(f'Room count {r} out of range. Valid: 1-6, "studio", "all".')
             elif isinstance(r, str):
                 if r != "studio":
                     raise ValueError(f'Invalid room value "{r}". Valid string values: "studio", "all".')
             else:
                 raise ValueError(f'Invalid type in rooms tuple: {type(r)}. Expected int or str.')
     elif isinstance(rooms, int):
-        if rooms < 1 or rooms > 5:
-            raise ValueError(f'Room count {rooms} out of range. Valid: 1-5, "studio", "all".')
+        if rooms < 1 or rooms > 6:
+            raise ValueError(f'Room count {rooms} out of range. Valid: 1-6, "studio", "all".')
     elif isinstance(rooms, str):
         if rooms not in ("studio", "all"):
-            raise ValueError(f'Invalid rooms="{rooms}". Valid: 1-5, "studio", "all".')
+            raise ValueError(f'Invalid rooms="{rooms}". Valid: 1-6, "studio", "all".')
     else:
         raise ValueError(f'Invalid type for rooms: {type(rooms)}. Expected int, str, or tuple.')
 
