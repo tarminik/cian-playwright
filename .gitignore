@@ -19,11 +19,7 @@ venv/
 *.swp
 *.swo
 
-# Data artifacts (parser output)
+# Data artifacts
 *.csv
 *.json
 !pyproject.toml
-
-# Debug / scratch files
-*.html
-parse.py

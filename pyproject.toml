@@ -3,10 +3,27 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cian-parser"
+name = "cian-playwright"
 version = "2.0.0"
 description = "Parser for Cian.ru real estate listings (Playwright-based)"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.9"
+authors = [
+    { name = "Mikhail", email = "tarminik@gmail.com" },
+]
+keywords = ["cian", "parser", "real-estate", "scraper", "playwright"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
 dependencies = [
     "playwright>=1.40",
     "playwright-stealth>=2.0",
@@ -14,6 +31,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/tarminik/cian-parser"
+Repository = "https://github.com/tarminik/cian-parser"
+Issues = "https://github.com/tarminik/cian-parser/issues"
 
 [tool.pytest.ini_options]
 markers = [
