@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**cian-parser** — a Playwright-based web scraper for Cian.ru real estate listings. Supports flats, suburban properties, and new construction. Published as `cian-parser` on PyPI (v2.0.0). Python >=3.9.
+**cian-playwright** — a Python >=3.9 Playwright library for Cian.ru flats, suburban properties, and new construction. The import package is `cian_parser`; authoritative metadata is in `pyproject.toml`.
 
 ## Commands
 
@@ -18,15 +18,16 @@ pytest tests/
 
 # Run only live end-to-end tests (hit real Cian.ru)
 pytest -m live
+pytest -m live --headed  # Requires a display; useful when Cian rejects headless traffic
 
 # Run slow tests (detail page parsing)
 pytest -m slow
 
 # Run a specific test class or test
 pytest tests/test_e2e.py::TestFlatSale
-pytest tests/test_url_builder.py::test_metro_station -v
+pytest tests/test_url_builder.py::test_additional_settings_metro -v
 
-# Run unit tests only (no network)
+# Run offline tests (some use Chromium with local HTML/intercepted requests)
 pytest tests/ -m "not live"
 ```
 
@@ -38,21 +39,22 @@ pytest tests/ -m "not live"
 
 ### Parser Hierarchy
 
-- `BaseListParser` (abstract, in `base_list.py`) — shared pagination, retry (3 attempts, 5/10/15s backoff), CAPTCHA detection, deduplication by URL ID, lazy-load scrolling
-  - `FlatListParser` / `SuburbanListParser` — extend base with property-specific card extraction
-- `NewObjectListParser` — **independent implementation**, does not inherit from `BaseListParser` (different card structure)
-- Each property type has a separate `DetailParser` class for optional detail-page enrichment
+- `BaseListParser` — shared pagination, retry (3 attempts with 5/10s waits), CAPTCHA partial results, deduplication, and CSV commit ordering.
+  - `FlatListParser`, `SuburbanListParser`, and `NewObjectListParser` specialize card extraction and record keys.
+- Each property type has a separate detail parser. `page_utils.py` shares guarded navigation, CAPTCHA detection, and cleanup. Newobject collection always includes details; flat/suburban enrichment is optional.
 
 ### Key Modules
 
 | Module | Responsibility |
 |---|---|
 | `parser.py` | Public API: `CianParser` context manager, `list_locations()`, `list_metro_stations()`, `list_districts()` |
-| `browser.py` | `BrowserManager` — Playwright lifecycle, stealth plugin, proxy, Russian locale/timezone |
+| `browser.py` | `BrowserManager` — Playwright lifecycle, owned-context cleanup, stealth, proxy, Russian locale/timezone |
 | `url_builder.py` | `URLBuilder` — filter-to-URL translation (rooms, price, floor, metro, district, etc.) |
 | `helpers.py` | DOM data extraction functions (price, specs, location, author) |
-| `constants.py` | Cities (150+), districts (Moscow/SPb), metro stations (6 systems), URL templates, regex patterns, deal-type field mappings |
-| `csv_saver.py` | Semicolon-delimited UTF-8 CSV export |
+| `constants.py` | Cities, districts (Moscow/SPb), metro systems, URL templates, deal-type field mappings |
+| `page_utils.py` | Detail-page checks, CAPTCHA detection, contact extraction, safe page cleanup |
+| `short_rent.py` | Daily rental map cards, asynchronous readiness, button pagination and retry state |
+| `csv_saver.py` | Atomic semicolon-delimited UTF-8 CSV export |
 | `exceptions.py` | `CaptchaError` (preserves partial results), `LocationNotFoundError`, `BrowserNotInstalledError` |
 
 ### Property Types
@@ -67,20 +69,25 @@ Three parsing paths in `src/cian_parser/`: `flat/`, `suburban/`, `newobject/` �
 
 - **Runtime:** `playwright>=1.40`, `playwright-stealth>=2.0`
 - **Dev:** `pytest`
-- **Build:** `setuptools>=64`, `wheel`
+- **Build:** `setuptools>=77`, `wheel`
 
 ## Testing
 
 - `test_e2e.py` — live integration tests against Cian.ru (marked `live`; detail-page tests also marked `slow`)
-- `test_e2e_isolated.py` — integration tests without real network (exception handling, CAPTCHA propagation)
+- `test_e2e_isolated.py` — live tests using separate browser instances; still requires network
+- `test_parser_integration.py` — public API integration tests with real Chromium and intercepted HTTP responses
+- `test_collection_integrity.py`, `test_extraction.py`, `test_browser.py`, `test_csv_saver.py`, `test_api_contract.py` — regression tests for collection, extraction, cleanup, persistence, and validation
 - `test_url_builder.py`, `test_helpers.py`, `test_validators.py`, `test_exceptions.py`, `test_constants.py` — unit tests
-- Shared browser fixture in `conftest.py` for test session reuse
+- Shared browser fixture in `conftest.py` for module-level reuse; `--headed` affects live tests
 - CAPTCHA can interrupt live tests; partial results are preserved via `CaptchaError`
 
 ## Key Design Decisions
 
-- **Stealth plugin** to avoid Cian.ru bot detection
-- **Detail page parsing is optional** (`additional_data=True`) — trades speed for completeness
+- **Stealth plugin** is applied to pages; site access can still be denied with HTTP 403
+- **Detail page parsing is optional** (`with_extra_data=True` for flats/suburban) — trades speed for completeness
 - **CAPTCHA resilience** — `CaptchaError` carries collected data so callers can use partial results
-- **Deduplication** by listing URL ID across paginated pages
+- **Deduplication** by listing ID or full newobject project URL, ignoring tracking parameters
+- **Failures are explicit** — exhausted retries and missing page layouts must not return apparently complete data
+- **Bounded requests** — use `additional_settings` with `start_page`/`end_page`; newobjects accept only these settings
+- **Daily search isolation** — each daily list collection owns a fresh browser context; release it through `BrowserManager.close_page()` to avoid stale search state and context leaks
 - **Semicolon CSV delimiter** — standard for European locale spreadsheets

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from cian_parser.browser import BrowserManager
-from cian_parser.exceptions import CaptchaError
-
-logger = logging.getLogger("cian_parser")
+from cian_parser.page_utils import detail_page, extract_phone, read_span_texts
 
 
 class SuburbanDetailParser:
@@ -30,26 +27,10 @@ class SuburbanDetailParser:
             "phone": "",
         }
 
-        page = self.browser.new_page()
-        try:
-            self.browser.navigate(page, url)
-            page.wait_for_timeout(2000)
-
-            # Check for CAPTCHA on detail page
-            body_text = page.inner_text("body")
-            if "Captcha" in body_text or "captcha" in body_text:
-                raise CaptchaError(
-                    f"CAPTCHA detected on detail page {url}",
-                    partial_results=partial_results or [],
-                )
-
-            spans = page.query_selector_all("span")
-            span_texts = []
-            for span in spans:
-                try:
-                    span_texts.append(span.inner_text().strip())
-                except Exception:
-                    span_texts.append("")
+        with detail_page(
+            self.browser, url, partial_results, required_selector="[data-name='OfferCardPageLayout']",
+        ) as page:
+            span_texts = read_span_texts(page, "[data-name='OfferCardPageLayout'] span")
 
             field_map = {
                 "Материал дома": "house_material_type",
@@ -61,7 +42,7 @@ class SuburbanDetailParser:
                 "Канализация": "sewage_system",
                 "Санузел": "bathroom",
                 "Площадь кухни": "kitchen_meters",
-                "Общая площадь": "living_meters",
+                "Жилая площадь": "living_meters",
                 "Этажей в доме": "floors_count",
             }
 
@@ -75,17 +56,6 @@ class SuburbanDetailParser:
                 if "Год сдачи" in text and index + 1 < len(span_texts):
                     page_data["year_of_construction"] = span_texts[index + 1]
 
-            html = page.content()
-            if "+7" in html:
-                phone_start = html.find("+7")
-                raw_phone = html[phone_start:phone_start + 16].split('"')[0]
-                page_data["phone"] = raw_phone.replace(" ", "").replace("-", "")
-
-        except CaptchaError:
-            raise
-        except Exception as exc:
-            logger.warning("Failed to parse detail page %s: %s", url, exc)
-        finally:
-            page.close()
+            page_data["phone"] = extract_phone(page)
 
         return page_data

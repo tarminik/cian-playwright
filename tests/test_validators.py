@@ -62,3 +62,15 @@ def test_valid_suburban_types():
 def test_invalid_suburban_type():
     with pytest.raises(ValueError):
         _validate_suburban_type("castle")
+
+
+@pytest.mark.parametrize("rooms", [True, False, (), (1, True), (False, "studio")])
+def test_rooms_reject_values_that_would_silently_drop_filter(rooms):
+    with pytest.raises(ValueError):
+        _validate_rooms(rooms)
+
+
+@pytest.mark.parametrize("validator", [_validate_deal_type, _validate_suburban_type])
+def test_enum_validators_reject_unhashable_values(validator):
+    with pytest.raises(ValueError):
+        validator([])

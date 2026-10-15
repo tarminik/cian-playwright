@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 from playwright.sync_api import ElementHandle
 
-from cian_parser.constants import STREET_TYPES, NOT_STREET_ADDRESS_ELEMENTS, FLOATS_NUMBERS_REG_EXPRESSION
+from cian_parser.constants import STREET_TYPES
 
 
 def union_dicts(*dicts: dict) -> dict:
@@ -16,26 +17,17 @@ def union_dicts(*dicts: dict) -> dict:
 
 
 def define_rooms_count(description: str) -> int:
-    if "1-комн" in description or "Студия" in description or "студия" in description:
+    match = re.search(r"\b(\d+)\s*[-–‑]\s*комн", description, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    if re.search(r"\bстудия\b", description, re.IGNORECASE):
         return 1
-    if "2-комн" in description:
-        return 2
-    if "3-комн" in description:
-        return 3
-    if "4-комн" in description:
-        return 4
-    if "5-комн" in description:
-        return 5
     return -1
 
 
 def define_deal_url_id(url: str) -> str:
-    url_path_elements = url.split("/")
-    if len(url_path_elements[-1]) > 3:
-        return url_path_elements[-1]
-    if len(url_path_elements) >= 2 and len(url_path_elements[-2]) > 3:
-        return url_path_elements[-2]
-    return "-1"
+    listing_id = urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
+    return listing_id if listing_id.isdigit() else "-1"
 
 
 def define_author(card: ElementHandle) -> dict[str, str]:
@@ -49,8 +41,6 @@ def define_author(card: ElementHandle) -> dict[str, str]:
     brand_text = brand_el.inner_text().strip()
     lines = [line.strip() for line in brand_text.split("\n") if line.strip()]
 
-    full_text = brand_text
-
     type_map = [
         ("Агентство недвижимости", "real_estate_agent"),
         ("Собственник", "homeowner"),
@@ -61,12 +51,11 @@ def define_author(card: ElementHandle) -> dict[str, str]:
     ]
 
     for keyword, author_type in type_map:
-        if keyword in full_text:
-            for i, line in enumerate(lines):
-                if keyword in line:
-                    author_data["author"] = lines[i + 1].replace(",", ".").strip() if i + 1 < len(lines) else line
-                    author_data["author_type"] = author_type
-                    return author_data
+        for i, line in enumerate(lines):
+            if keyword.casefold() in line.casefold():
+                author_data["author"] = lines[i + 1] if i + 1 < len(lines) else line
+                author_data["author_type"] = author_type
+                return author_data
 
     if any("ID" in line for line in lines):
         for line in lines:
@@ -92,17 +81,27 @@ def define_price_data(card: ElementHandle) -> dict[str, Any]:
     }
 
     price_el = card.query_selector("[data-mark='MainPrice']")
-    if not price_el:
+    if price_el:
+        _parse_price_text(price_el.inner_text().strip(), price_data)
+    else:
         price_rows = card.query_selector_all("[data-name='ContentRow']")
         for row in price_rows:
             text = row.inner_text().strip()
             if "₽" in text:
-                price_el_text = text
-                return _parse_price_text(price_el_text, price_data)
-        return price_data
+                _parse_price_text(text, price_data)
+                break
 
-    price_el_text = price_el.inner_text().strip()
-    return _parse_price_text(price_el_text, price_data)
+    if price_data["price_per_month"] != -1:
+        price_info = card.query_selector("[data-mark='PriceInfo']")
+        if price_info:
+            text = price_info.inner_text()
+            commission = re.search(r"комисси[яи]\s*:?\s*(\d+)\s*%", text, re.IGNORECASE)
+            if commission:
+                price_data["commissions"] = int(commission.group(1))
+            elif "без комиссии" in text.casefold():
+                price_data["commissions"] = 0
+
+    return price_data
 
 
 def _parse_price_text(text: str, price_data: dict[str, Any]) -> dict[str, Any]:
@@ -137,6 +136,15 @@ def _parse_price_text(text: str, price_data: dict[str, Any]) -> dict[str, Any]:
         return price_data
 
     return price_data
+
+
+def _is_street(text: str) -> bool:
+    if re.search(r"^(?:м\.|метро\b|жк\b|жилой комплекс\b|мкр\.)|\b(?:р-н|район|поселение)\b", text, re.IGNORECASE):
+        return False
+    return any(
+        re.search(r"(?<!\w)" + re.escape(street_type) + ("" if street_type.endswith(".") else r"(?!\w)"), text, re.IGNORECASE)
+        for street_type in STREET_TYPES
+    )
 
 
 def define_location_data(card: ElementHandle, is_sale: bool) -> dict[str, str]:
@@ -175,6 +183,12 @@ def define_location_data(card: ElementHandle, is_sale: bool) -> dict[str, str]:
             if "ЖК" in text and "«" in text and "»" in text:
                 location_data["residential_complex"] = text.split("«")[1].split("»")[0]
                 break
+        if not location_data["residential_complex"]:
+            for link in card.query_selector_all("a[href]"):
+                match = re.match(r'ЖК\s*[«"]([^»"]+)[»"]', link.inner_text().strip(), re.IGNORECASE)
+                if match:
+                    location_data["residential_complex"] = match.group(1)
+                    break
 
     # Extract district
     for text in geo_texts:
@@ -184,8 +198,7 @@ def define_location_data(card: ElementHandle, is_sale: bool) -> dict[str, str]:
 
     # Extract street and house number
     for i, text in enumerate(geo_texts):
-        text_lower = text.lower()
-        if any(st in text_lower for st in STREET_TYPES):
+        if _is_street(text):
             location_data["street"] = text.replace("улица", "").strip()
             if i + 1 < len(geo_texts) and any(c.isdigit() for c in geo_texts[i + 1]):
                 location_data["house_number"] = geo_texts[i + 1].strip()
@@ -196,9 +209,7 @@ def define_location_data(card: ElementHandle, is_sale: bool) -> dict[str, str]:
         address_elements = full_address.split(",")
         for j, elem in enumerate(address_elements):
             elem_stripped = elem.strip()
-            elem_lower = elem_stripped.lower()
-
-            if any(st in elem_lower for st in STREET_TYPES):
+            if _is_street(elem_stripped):
                 location_data["street"] = elem_stripped.replace("улица", "").strip()
                 if j + 1 < len(address_elements):
                     next_elem = address_elements[j + 1].strip()
@@ -228,8 +239,7 @@ def parse_location_data(card: ElementHandle) -> dict[str, str]:
         if "р-н" in text or "поселение" in text:
             location_data["district"] = text
 
-        text_lower = text.lower()
-        if any(st in text_lower for st in STREET_TYPES):
+        if _is_street(text):
             location_data["street"] = text
             if i + 1 < len(geo_texts) and any(c.isdigit() for c in geo_texts[i + 1]):
                 location_data["house_number"] = geo_texts[i + 1]
@@ -246,33 +256,24 @@ def define_specification_data(card: ElementHandle) -> dict[str, Any]:
         "total_meters": -1,
     }
 
-    title_el = card.query_selector("[data-name='TitleComponent']")
+    title_el = card.query_selector("[data-mark='OfferSubtitle']")
+    if not title_el:
+        title_el = card.query_selector("[data-name='TitleComponent']")
     if not title_el:
         return specification_data
 
     title_text = title_el.inner_text().strip()
 
-    # Extract total_meters
-    if "м²" in title_text:
-        meters_part = title_text[:title_text.find("м²")].replace(",", ".")
-        floats = re.findall(FLOATS_NUMBERS_REG_EXPRESSION, meters_part)
-        if floats:
-            try:
-                specification_data["total_meters"] = float(floats[-1].strip().replace(" ", "").replace("-", ""))
-            except ValueError:
-                pass
+    # Grouping spaces and decimal commas are common in Russian area labels.
+    area_match = re.search(r"(\d+(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d+)?)\s*м[²2]", title_text)
+    if area_match:
+        specification_data["total_meters"] = float("".join(area_match.group(1).split()).replace(",", "."))
 
     # Extract floor info
-    if "этаж" in title_text:
-        floor_section = title_text[title_text.rfind("этаж") - 7:title_text.rfind("этаж")]
-        floor_parts = floor_section.split("/")
-        if len(floor_parts) == 2:
-            ints = re.findall(r'\d+', floor_parts[0])
-            if ints:
-                specification_data["floor"] = int(ints[-1])
-            ints = re.findall(r'\d+', floor_parts[1])
-            if ints:
-                specification_data["floors_count"] = int(ints[-1])
+    floor_match = re.search(r"(\d+)\s*/\s*(\d+)\s*эт", title_text, re.IGNORECASE)
+    if floor_match:
+        specification_data["floor"] = int(floor_match.group(1))
+        specification_data["floors_count"] = int(floor_match.group(2))
 
     # Extract rooms count
     specification_data["rooms_count"] = define_rooms_count(title_text)

@@ -4,14 +4,17 @@ import logging
 import random
 import time
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import Page
 
 from cian_parser.browser import BrowserManager
 from cian_parser.csv_saver import save_to_csv
 from cian_parser.constants import SPECIFIC_FIELDS_FOR_RENT_LONG, SPECIFIC_FIELDS_FOR_RENT_SHORT, SPECIFIC_FIELDS_FOR_SALE
-from cian_parser.exceptions import CaptchaError
+from cian_parser.exceptions import CaptchaError, CianParserError
 from cian_parser.helpers import define_deal_url_id
+from cian_parser.page_utils import close_page, raise_for_captcha
+from cian_parser.short_rent import SIDEBAR, ShortRentNavigation
 
 logger = logging.getLogger("cian_parser")
 
@@ -38,6 +41,7 @@ class BaseListParser:
         self.with_extra_data = with_extra_data
         self.additional_settings = additional_settings
         self.object_type = object_type
+        self._short_rent = ShortRentNavigation() if self.is_rent_short() else None
 
         self.result: list[dict[str, Any]] = []
         self.result_set: set[str] = set()
@@ -78,12 +82,19 @@ class BaseListParser:
 
     def run(self, url_format: str) -> list[dict[str, Any]]:
         """Run pagination loop. Returns collected results."""
-        page = self.browser.new_page()
+        isolated = self.is_rent_short()
+        page = self.browser.new_page(isolated=True) if isolated else self.browser.new_page()
 
         try:
             self._paginate(page, url_format)
+        except CaptchaError as exc:
+            exc.partial_results = list(self.result)
+            raise
         finally:
-            page.close()
+            if isolated:
+                self.browser.close_page(page)
+            else:
+                close_page(page)
 
         return self.result
 
@@ -110,10 +121,10 @@ class BaseListParser:
                 except Exception as exc:
                     attempt += 1
                     delay = attempt * 5
-                    logger.warning("Error on page %d (attempt %d/3): %s. Retrying in %ds...", page_number, attempt, exc, delay)
                     if attempt >= 3:
                         logger.error("Failed to parse page %d after 3 attempts: %s", page_number, exc)
-                        return
+                        raise
+                    logger.warning("Error on page %d (attempt %d/3): %s. Retrying in %ds...", page_number, attempt, exc, delay)
                     time.sleep(delay)
 
         logger.info("Collection complete. Total parsed: %d", self.count_parsed_offers)
@@ -125,7 +136,11 @@ class BaseListParser:
         if page_number == self.start_page and attempt == 0:
             logger.info("Starting URL: %s", url)
 
-        self.browser.navigate(page, url)
+        if self._short_rent is not None:
+            if not self._short_rent.navigate(self.browser, page, url_format, page_number):
+                return True, True
+        else:
+            self.browser.navigate(page, url)
         page.wait_for_timeout(random.randint(3000, 5000))
 
         # Scroll to load lazy content
@@ -134,14 +149,7 @@ class BaseListParser:
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         page.wait_for_timeout(1000)
 
-        # Check for CAPTCHA
-        page_text = page.inner_text("body")
-        if "Captcha" in page_text or "captcha" in page_text:
-            logger.warning("CAPTCHA detected on page %d", page_number)
-            raise CaptchaError(
-                f"CAPTCHA detected on page {page_number}. Collected {len(self.result)} results before CAPTCHA.",
-                partial_results=list(self.result),
-            )
+        raise_for_captcha(page, self.result)
 
         cards = self._get_cards(page)
         if not cards:
@@ -155,6 +163,9 @@ class BaseListParser:
 
         logger.info("Total parsed so far: %d", self.count_parsed_offers)
 
+        if page_number >= self.end_page:
+            return True, True
+
         # Check pagination
         has_next = self._has_next_page(page, page_number)
         if not has_next:
@@ -165,18 +176,33 @@ class BaseListParser:
         return True, False
 
     def _get_cards(self, page: Page) -> list:
-        return page.query_selector_all("article[data-name='CardComponent']")
+        if self._short_rent is not None and page.query_selector(SIDEBAR) is not None:
+            return self._short_rent.cards(page)
+        container = page.query_selector("[data-name='SearchEngineResultsPageContainer']")
+        if container is None:
+            raise RuntimeError("Search results container is missing; refusing to return an empty result")
+        # Suggestions can ignore the requested location, price and property type.
+        return container.query_selector_all("[data-name='Offers'] article[data-name='CardComponent']")
 
     def _has_next_page(self, page: Page, current_page: int) -> bool:
-        next_btn = page.query_selector("[data-name='Pagination'] [class*='--next--']")
-        if next_btn:
-            return True
-
+        if self._short_rent is not None and page.query_selector(SIDEBAR) is not None:
+            return self._short_rent.has_next(page)
         pag = page.query_selector("[data-name='Pagination']")
         if not pag:
             return False
 
-        page_links = page.query_selector_all("[data-name='Pagination'] li")
+        next_btn = pag.query_selector("[class*='--next--'], [rel='next']")
+        if next_btn and next_btn.get_attribute("disabled") is None and next_btn.get_attribute("aria-disabled") != "true":
+            return True
+
+        for link in pag.query_selector_all("a[href]"):
+            if link.get_attribute("aria-disabled") == "true":
+                continue
+            query = parse_qs(urlsplit(link.get_attribute("href") or "").query)
+            if any(value.isdigit() and int(value) > current_page for value in query.get("p", [])):
+                return True
+
+        page_links = pag.query_selector_all("li")
         last_page = current_page
         for pl in page_links:
             txt = pl.inner_text().strip()
@@ -190,9 +216,9 @@ class BaseListParser:
         url = card_data.get("url", "")
 
         if not url:
-            return
+            raise CianParserError("Listing card has no URL; collection would be incomplete")
 
-        url_id = define_deal_url_id(url)
+        url_id = self._record_key(url)
         if url_id in self.result_set:
             return
 
@@ -201,17 +227,21 @@ class BaseListParser:
             page_data = self.parse_detail_page(url)
             time.sleep(4)
 
-        self.result_set.add(url_id)
         # Merge detail data without overwriting valid card-level values with sentinels
         for key, value in page_data.items():
-            if key in card_data and card_data[key] not in (-1, ""):
+            if key in card_data and card_data[key] not in (-1, "", None):
                 # Only overwrite if detail value is also non-sentinel
-                if value in (-1, ""):
+                if value in (-1, "", None):
                     continue
             card_data[key] = value
         card_data = self.remove_unnecessary_fields(card_data)
+        if self.with_saving_csv:
+            save_to_csv([*self.result, card_data], str(self.file_path))
+
+        self.result_set.add(url_id)
         self.result.append(card_data)
         self.count_parsed_offers += 1
 
-        if self.with_saving_csv:
-            save_to_csv(self.result, str(self.file_path))
+    def _record_key(self, url: str) -> str:
+        url_id = define_deal_url_id(url)
+        return url_id if url_id != "-1" else urlsplit(url)._replace(query="", fragment="").geturl()

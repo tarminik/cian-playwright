@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from typing import Any
 
 from cian_parser.browser import BrowserManager
@@ -21,12 +22,12 @@ def list_locations() -> list[tuple[str, str]]:
 
 def list_metro_stations() -> dict:
     """Return dict of metro systems with their stations."""
-    return METRO_STATIONS
+    return deepcopy(METRO_STATIONS)
 
 
 def list_districts(location: str) -> list[tuple[str, str]]:
     """Return list of districts for given location as (name, id) tuples."""
-    return DISTRICTS.get(location, [])
+    return list(DISTRICTS.get(location, []))
 
 
 class CianParser:
@@ -36,21 +37,28 @@ class CianParser:
         location: City name (e.g. "Москва"). See list_locations() for valid values.
         proxies: Proxy URL string for Playwright browser context, or None.
             If a list is passed, the first element is used (with a warning).
+        headless: Run without a browser window (default True). False requires a display.
     """
 
-    def __init__(self, location: str, proxies: str | list | None = None):
+    def __init__(self, location: str, proxies: str | list | None = None, *, headless: bool = True):
+        if not isinstance(headless, bool):
+            raise ValueError("headless must be a boolean.")
         location_id = _validate_location(location)
 
         proxy: str | None = None
         if isinstance(proxies, list):
+            if proxies and not isinstance(proxies[0], str):
+                raise ValueError("proxies must be a proxy URL string, a list of URL strings, or None.")
             logger.warning("List of proxies passed; only the first one will be used (Playwright supports one proxy per context).")
             proxy = proxies[0] if proxies else None
         elif isinstance(proxies, str):
             proxy = proxies
+        elif proxies is not None:
+            raise ValueError("proxies must be a proxy URL string, a list of URL strings, or None.")
 
         self._location_name = location
         self._location_id = location_id
-        self._browser = BrowserManager(proxy=proxy)
+        self._browser = BrowserManager(proxy=proxy, headless=headless)
 
     def get_flats(
         self,
@@ -64,7 +72,7 @@ class CianParser:
 
         Args:
             deal_type: "sale", "rent_long", or "rent_short"
-            rooms: Room count filter. Int (1-5), "studio", "all", or tuple of mixed.
+            rooms: Room count filter. Int (1-6), "studio", "all", or tuple of mixed.
             with_saving_csv: Save results to CSV file.
             with_extra_data: Collect additional data from detail pages (slower).
             additional_settings: Dict with filters (min_price, max_price, metro, sort_by, etc.)
@@ -141,24 +149,40 @@ class CianParser:
 
         return parser.run(url_format)
 
-    def get_newobjects(self, with_saving_csv: bool = False) -> list[dict[str, Any]]:
+    def get_newobjects(
+        self,
+        with_saving_csv: bool = False,
+        *,
+        additional_settings: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """Parse new construction object listings from Cian.
 
         Args:
             with_saving_csv: Save results to CSV file.
+            additional_settings: Optional start_page/end_page bounds (defaults: 1/50).
+                Other filters are not supported for new construction listings.
 
         Returns:
             List of dicts with new construction data.
         """
+        settings = {"end_page": 50}
+        if additional_settings is not None:
+            if not isinstance(additional_settings, dict):
+                raise ValueError("additional_settings must be a dict.")
+            if additional_settings.keys() - {"start_page", "end_page"}:
+                raise ValueError("get_newobjects additional_settings supports only start_page and end_page.")
+            settings.update(additional_settings)
+
         url_format = _build_url(
             location_id=self._location_id, deal_type="sale",
-            accommodation_type="newobject",
+            accommodation_type="newobject", additional_settings=settings,
         )
 
         parser = NewObjectListParser(
             browser=self._browser,
             location_name=self._location_name,
             with_saving_csv=with_saving_csv,
+            additional_settings=settings,
         )
 
         return parser.run(url_format)
@@ -185,7 +209,7 @@ def _validate_location(location: str) -> str:
 
 
 def _validate_deal_type(deal_type: str) -> None:
-    if deal_type not in DEAL_TYPES:
+    if not isinstance(deal_type, str) or deal_type not in DEAL_TYPES:
         raise ValueError(
             f'Invalid deal_type="{deal_type}". '
             f'Valid values: "sale", "rent_long", "rent_short".'
@@ -193,8 +217,14 @@ def _validate_deal_type(deal_type: str) -> None:
 
 
 def _validate_rooms(rooms: int | str | tuple) -> None:
+    if isinstance(rooms, bool):
+        raise ValueError('rooms must be a room count, "studio", "all", or a nonempty tuple.')
     if isinstance(rooms, tuple):
+        if not rooms:
+            raise ValueError('rooms tuple must not be empty. Use "all" for all rooms.')
         for r in rooms:
+            if isinstance(r, bool):
+                raise ValueError('Boolean values are not valid room counts.')
             if isinstance(r, int):
                 if r < 1 or r > 6:
                     raise ValueError(f'Room count {r} out of range. Valid: 1-6, "studio", "all".')
@@ -214,7 +244,7 @@ def _validate_rooms(rooms: int | str | tuple) -> None:
 
 
 def _validate_suburban_type(suburban_type: str) -> None:
-    if suburban_type not in OBJECT_SUBURBAN_TYPES:
+    if not isinstance(suburban_type, str) or suburban_type not in OBJECT_SUBURBAN_TYPES:
         raise ValueError(
             f'Invalid suburban_type="{suburban_type}". '
             f'Valid values: "house", "house-part", "land-plot", "townhouse".'

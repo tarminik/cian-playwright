@@ -1,6 +1,4 @@
 import csv
-import glob
-import os
 
 import pytest
 
@@ -71,7 +69,8 @@ class TestFlatSale:
         )
         assert len(result) > 0
         for r in result:
-            assert r["rooms_count"] in {1, 2, 3, 4, 5, -1}
+            assert isinstance(r["rooms_count"], int)
+            assert r["rooms_count"] == -1 or r["rooms_count"] > 0
 
     def test_flat_sale_rooms_studio(self, parser):
         result = safe_run(
@@ -263,39 +262,39 @@ class TestFlatExtraData:
 class TestFlatCSV:
 
     @pytest.fixture(scope="class")
-    def csv_result(self, parser):
-        result = safe_run(
-            lambda: parser.get_flats(
-                deal_type="sale", rooms=1, with_saving_csv=True,
-                additional_settings={"start_page": 1, "end_page": 1},
+    def csv_result(self, parser, tmp_path_factory):
+        output_dir = tmp_path_factory.mktemp("flat_csv")
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.chdir(output_dir)
+            result = safe_run(
+                lambda: parser.get_flats(
+                    deal_type="sale", rooms=1, with_saving_csv=True,
+                    additional_settings={"start_page": 1, "end_page": 1},
+                )
             )
-        )
-        yield result
-        # Cleanup CSV files
-        for f in glob.glob("cian_flat_sale_*.csv"):
-            os.remove(f)
+        return result, list(output_dir.glob("cian_flat_sale_*.csv"))
 
     def test_flat_sale_csv_created(self, csv_result):
-        assert len(csv_result) > 0
-        csv_files = glob.glob("cian_flat_sale_*.csv")
-        assert len(csv_files) >= 1
+        result, csv_files = csv_result
+        assert len(result) > 0
+        assert len(csv_files) == 1
 
     def test_flat_sale_csv_delimiter(self, csv_result):
-        csv_files = glob.glob("cian_flat_sale_*.csv")
-        assert len(csv_files) >= 1
+        _, csv_files = csv_result
+        assert len(csv_files) == 1
         with open(csv_files[0], encoding="utf-8") as f:
             reader = csv.reader(f, delimiter=";")
             header = next(reader)
             assert len(header) > 1, "Header should have multiple columns with ';' delimiter"
 
     def test_flat_sale_csv_row_count(self, csv_result):
-        csv_files = glob.glob("cian_flat_sale_*.csv")
-        assert len(csv_files) >= 1
+        result, csv_files = csv_result
+        assert len(csv_files) == 1
         with open(csv_files[0], encoding="utf-8") as f:
             reader = csv.reader(f, delimiter=";")
             header = next(reader)
             rows = list(reader)
-        assert len(rows) == len(csv_result)
+        assert len(rows) == len(result)
         assert "url" in header
         assert "price" in header
 
@@ -524,7 +523,8 @@ class TestSuburbanExtraData:
 @pytest.mark.live
 class TestSuburbanCSV:
 
-    def test_suburban_sale_csv(self, parser):
+    def test_suburban_sale_csv(self, parser, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         result = safe_run(
             lambda: parser.get_suburban(
                 suburban_type="house", deal_type="sale", with_saving_csv=True,
@@ -533,18 +533,16 @@ class TestSuburbanCSV:
         )
         assert len(result) > 0
 
-        csv_files = glob.glob("cian_suburban_*.csv")
-        assert len(csv_files) >= 1
+        csv_files = list(tmp_path.glob("cian_suburban_*.csv"))
+        assert len(csv_files) == 1
 
         with open(csv_files[0], encoding="utf-8") as f:
             reader = csv.reader(f, delimiter=";")
             header = next(reader)
             rows = list(reader)
         assert len(rows) == len(result)
-
-        # Cleanup
-        for f in csv_files:
-            os.remove(f)
+        assert "url" in header
+        assert "price" in header
 
 
 # ===========================================================================
@@ -555,18 +553,8 @@ class TestSuburbanCSV:
 @pytest.mark.slow
 class TestNewobject:
 
-    def test_newobject_basic(self, parser, monkeypatch):
-        from cian_parser.newobject.list_parser import NewObjectListParser
-
-        original_init = NewObjectListParser.__init__
-
-        def patched_init(self, *args, **kwargs):
-            original_init(self, *args, **kwargs)
-            self.end_page = 1
-
-        monkeypatch.setattr(NewObjectListParser, "__init__", patched_init)
-
-        result = safe_run(lambda: parser.get_newobjects())
+    def test_newobject_basic(self, parser):
+        result = safe_run(lambda: parser.get_newobjects(additional_settings={"end_page": 1}))
         assert len(result) > 0
 
         expected_keys = {"name", "location", "accommodation_type", "url", "full_full_location_address"}

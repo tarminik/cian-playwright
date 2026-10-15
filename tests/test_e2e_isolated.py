@@ -28,8 +28,8 @@ def safe_run(fn):
 @pytest.mark.live
 class TestContextManager:
 
-    def test_context_manager_basic(self):
-        with CianParser("Москва") as p:
+    def test_context_manager_basic(self, headless):
+        with CianParser("Москва", headless=headless) as p:
             result = safe_run(
                 lambda: p.get_flats(
                     deal_type="sale", rooms=1,
@@ -38,8 +38,8 @@ class TestContextManager:
             )
         assert len(result) > 0
 
-    def test_context_manager_browser_cleanup(self):
-        p = CianParser("Москва")
+    def test_context_manager_browser_cleanup(self, headless):
+        p = CianParser("Москва", headless=headless)
         with p:
             safe_run(
                 lambda: p.get_flats(
@@ -57,8 +57,8 @@ class TestContextManager:
 @pytest.mark.live
 class TestDifferentLocation:
 
-    def test_flat_sale_spb(self):
-        with CianParser("Санкт-Петербург") as p:
+    def test_flat_sale_spb(self, headless):
+        with CianParser("Санкт-Петербург", headless=headless) as p:
             result = safe_run(
                 lambda: p.get_flats(
                     deal_type="sale", rooms=1,
