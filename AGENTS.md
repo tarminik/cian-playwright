@@ -2,14 +2,14 @@
 
 ## Project Structure & Module Organization
 
-This is a Python 3.9+ library using a `src/` layout. `src/cian_parser/parser.py` exposes `CianParser`; `browser.py` manages Playwright, `url_builder.py` constructs queries, and `base_list.py` handles shared collection logic. Property-specific list and detail parsers live in `flat/`, `suburban/`, and `newobject/`. Shared extraction, constants, exceptions, and CSV export have separate modules. Tests live in `tests/`, with shared fixtures in `conftest.py`. See `README.md` for usage examples and `pyproject.toml` for dependencies and packaging.
+This is a Python 3.12+ library using a `src/` layout. `src/cian_parser/parser.py` exposes `CianParser`; `browser.py` manages Playwright, `url_builder.py` constructs queries, and `base_list.py` handles shared collection logic. Property-specific list and detail parsers live in `flat/`, `suburban/`, and `newobject/`. Shared extraction, constants, exceptions, and CSV export have separate modules. Tests live in `tests/`, with shared fixtures in `conftest.py`. See `README.md` for usage examples and `pyproject.toml` for dependencies and packaging.
 
 ## Build, Test, and Development Commands
 
 Run from the repository root, preferably in a virtual environment:
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'       # Editable package and pytest
 python -m playwright install chromium # Required browser binary
@@ -23,7 +23,7 @@ python -m pip wheel . --no-deps -w dist # Build a wheel
 
 ## Coding Style & Naming Conventions
 
-Follow existing Python style: four-space indentation, `snake_case` functions and modules, `PascalCase` classes, and `UPPER_SNAKE_CASE` constants. Use type annotations and `from __future__ import annotations` consistently with adjacent modules. Keep public API docstrings concise and preserve Python 3.9 compatibility. No formatter or linter is configured; avoid unrelated formatting changes.
+Follow existing Python style: four-space indentation, `snake_case` functions and modules, `PascalCase` classes, and `UPPER_SNAKE_CASE` constants. Use type annotations and `from __future__ import annotations` consistently with adjacent modules. Keep public API docstrings concise and target Python 3.12 or newer. No formatter or linter is configured; avoid unrelated formatting changes.
 
 ## Testing Guidelines
 

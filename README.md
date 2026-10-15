@@ -4,10 +4,16 @@ Playwright-based parser for [Cian.ru](https://cian.ru) real estate listings.
 
 ## Installation
 
+Requires Python 3.12 or newer.
+
 ```bash
 pip install cian-playwright
 playwright install chromium
 ```
+
+Install the full Chromium browser; `playwright install chromium --only-shell`
+is insufficient. On Linux servers, use `playwright install --with-deps chromium`
+to install the browser and its system dependencies.
 
 ## Quick start
 
@@ -38,9 +44,9 @@ with CianParser("Москва") as parser:
 
 - **location** — city name (e.g. `"Москва"`). See `cian_parser.list_locations()` for all options.
 - **proxies** — optional proxy URL string for Playwright.
-- **headless** — use `False` to show Chromium (requires a desktop/display).
-  Cian may reject headless requests while accepting a visible browser. This is
-  an explicit option; the library does not switch browser modes automatically.
+- **headless** — defaults to `True`: full Chromium runs in its unified headless
+  mode, without a window, desktop, or Xvfb. Use `False` to show Chromium
+  (requires a desktop/display). The library does not switch modes automatically.
 
 ### `get_flats(deal_type, rooms="all", with_saving_csv=False, with_extra_data=False, additional_settings=None)`
 
@@ -134,7 +140,7 @@ list_districts("Москва")      # [("Арбат", "13"), ...]
 ## Development
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv # Or a newer supported Python
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 python -m playwright install chromium
@@ -146,8 +152,8 @@ python -m pip wheel . --no-deps -w dist
 
 The non-live suite includes Chromium tests against local HTML and intercepted
 requests. Live tests contact Cian and may skip on CAPTCHA; skips do not prove
-successful collection. CI runs offline tests and wheel checks on Python 3.9
-and 3.14. `pytest tests/` includes both suites.
+successful collection. CI runs offline tests and wheel checks on Python
+3.12–3.15. `pytest tests/` includes both suites.
 
 ## License
 

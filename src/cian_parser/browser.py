@@ -38,6 +38,9 @@ class BrowserManager:
         try:
             self._browser = self._playwright.chromium.launch(
                 headless=self._headless,
+                # Use full Chromium's unified headless mode. The default
+                # headless shell advertises HeadlessChrome in Client Hints.
+                channel="chromium",
                 args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
             )
             self._context = self._create_context()

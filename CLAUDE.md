@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**cian-playwright** — a Python >=3.9 Playwright library for Cian.ru flats, suburban properties, and new construction. The import package is `cian_parser`; authoritative metadata is in `pyproject.toml`.
+**cian-playwright** — a Python >=3.12 Playwright library for Cian.ru flats, suburban properties, and new construction. The import package is `cian_parser`; authoritative metadata is in `pyproject.toml`.
 
 ## Commands
 
@@ -18,7 +18,7 @@ pytest tests/
 
 # Run only live end-to-end tests (hit real Cian.ru)
 pytest -m live
-pytest -m live --headed  # Requires a display; useful when Cian rejects headless traffic
+pytest -m live --headed  # Optional visible browser; requires a display
 
 # Run slow tests (detail page parsing)
 pytest -m slow
@@ -67,9 +67,9 @@ Three parsing paths in `src/cian_parser/`: `flat/`, `suburban/`, `newobject/` �
 
 ## Dependencies
 
-- **Runtime:** `playwright>=1.40`, `playwright-stealth>=2.0`
-- **Dev:** `pytest`
-- **Build:** `setuptools>=77`, `wheel`
+- **Runtime:** `playwright>=1.64.0`, `playwright-stealth>=2.0.3`
+- **Dev:** `pytest>=9.1.1`
+- **Build:** `setuptools>=84.0.0`, `wheel>=0.48.0`
 
 ## Testing
 
@@ -84,6 +84,7 @@ Three parsing paths in `src/cian_parser/`: `flat/`, `suburban/`, `newobject/` �
 ## Key Design Decisions
 
 - **Stealth plugin** is applied to pages; site access can still be denied with HTTP 403
+- **Headless mode** uses the full `chromium` channel, not Headless Shell. Install full Chromium, including on CI; `--only-shell` is insufficient. No display or Xvfb is needed for `headless=True`.
 - **Detail page parsing is optional** (`with_extra_data=True` for flats/suburban) — trades speed for completeness
 - **CAPTCHA resilience** — `CaptchaError` carries collected data so callers can use partial results
 - **Deduplication** by listing ID or full newobject project URL, ignoring tracking parameters

@@ -14,6 +14,40 @@ def runtime(monkeypatch):
     return playwright
 
 
+@pytest.mark.parametrize("headless", [True, False])
+def test_requested_browser_mode_is_preserved(runtime, headless):
+    with BrowserManager(headless=headless):
+        assert runtime.chromium.launch.call_args.kwargs["headless"] is headless
+        assert runtime.chromium.launch.call_count == 1
+
+
+def test_headless_uses_full_chromium_without_a_display(monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    with BrowserManager(headless=True) as manager:
+        info = manager.new_page()
+        info.goto("chrome://version/")
+        arguments = info.locator("#command_line").inner_text().split()
+        assert any(arg == "--headless" or arg.startswith("--headless=") for arg in arguments)
+        manager.close_page(info)
+
+        for isolated in (False, True):
+            page = manager.new_page(isolated=isolated)
+            headers = []
+
+            def respond(route):
+                headers.append(route.request.headers)
+                route.fulfill(status=200, content_type="text/html", body="<h1>Local test</h1>")
+
+            page.route("https://cian.test/**", respond)
+            page.goto("https://cian.test/", wait_until="domcontentloaded")
+            brands = page.evaluate("navigator.userAgentData.brands.map(item => item.brand)")
+            assert "HeadlessChrome" not in headers[0]["sec-ch-ua"]
+            assert "HeadlessChrome" not in brands
+            assert "Chromium" in brands
+            manager.close_page(page)
+
+
 def test_context_creation_failure_releases_browser_and_driver(runtime):
     browser = runtime.chromium.launch.return_value
     browser.new_context.side_effect = PlaywrightError("context failed")
